@@ -35,11 +35,13 @@ class Parser:
         factor: int = 1,
         normalize: bool = False,
         test_every: int = 8,
+        init_indices: List[int] = None,
     ):
         self.data_dir = data_dir
         self.factor = factor
         self.normalize = normalize
         self.test_every = test_every
+        self.init_indices = init_indices
 
         colmap_dir = os.path.join(data_dir, "sparse/0/")
         if not os.path.exists(colmap_dir):
@@ -171,16 +173,34 @@ class Parser:
         points_err = manager.point3D_errors.astype(np.float32)
         points_rgb = manager.point3D_colors.astype(np.uint8)
         point_indices = dict()
-
+        
+        points_init = []
+        points_err_init = []
+        points_rgb_init = []
+        
+        max_point_id = max(manager.point3D_id_to_point3D_idx.values())
         image_id_to_name = {v: k for k, v in manager.name_to_image_id.items()}
         for point_id, data in manager.point3D_id_to_images.items():
             for image_id, _ in data:
                 image_name = image_id_to_name[image_id]
-                point_idx = manager.point3D_id_to_point3D_idx[point_id]
-                point_indices.setdefault(image_name, []).append(point_idx)
+                if self.init_indices is not None:
+                    if image_id in self.init_indices:
+                        points_init.append(points[manager.point3D_id_to_point3D_idx[point_id]])
+                        points_err_init.append(points_err[manager.point3D_id_to_point3D_idx[point_id]])
+                        points_rgb_init.append(points_rgb[manager.point3D_id_to_point3D_idx[point_id]])
+                        point_idx = manager.point3D_id_to_point3D_idx[point_id]
+                        point_indices.setdefault(image_name, []).append(point_id)
+                else:    
+                    point_idx = manager.point3D_id_to_point3D_idx[point_id]
+                    point_indices.setdefault(image_name, []).append(point_idx)
         point_indices = {
             k: np.array(v).astype(np.int32) for k, v in point_indices.items()
         }
+        
+        if self.init_indices is not None:
+            points = np.array(points_init).astype(np.float32)
+            points_err = np.array(points_err_init).astype(np.float32)
+            points_rgb = np.array(points_rgb_init).astype(np.uint8)
 
         # Normalize the world space.
         if normalize:
@@ -383,6 +403,116 @@ class Dataset:
             data["depths"] = torch.from_numpy(depths).float()
 
         return data
+
+
+
+class ActiveDataset:
+    """A simple active dataset class."""
+
+    def __init__(
+        self,
+        parser: Parser,
+        split: str = "train",
+        patch_size: Optional[int] = None,
+        load_depths: bool = False,
+        num_initial_views: int = 10,
+    ):
+        self.parser = parser
+        self.split = split
+        self.patch_size = patch_size
+        self.load_depths = load_depths
+        indices = np.arange(len(self.parser.image_names))
+        
+        if split == "initial" or split == "train":
+            # this operation should be deterministic
+            # get initial indices and training indices
+            initial_train_indices = indices[indices % self.parser.test_every != 0]
+            
+            # get num_initial_views evenly spaced indices
+            step = len(indices) // num_initial_views
+            initial_indices =  [indices[i] for i in range(0, len(indices), step)][:num_initial_views]
+            self.train_indices = [index for index in indices if index not in initial_indices]
+            
+            if split == "initial":
+                self.indices = initial_indices
+            else:
+                self.indices = self.train_indices
+
+        else:
+            self.indices = indices[indices % self.parser.test_every == 0]
+
+    def add_new_random_view(self):
+        # add a random idx from self.train_indices to self.indices
+        idx = np.random.choice(self.train_indices)
+        # remove idx from self.train_indices
+        self.train_indices.remove(idx)
+        self.indices.append(idx)
+    
+    def __len__(self):
+        return len(self.indices)
+
+    def __getitem__(self, item: int) -> Dict[str, Any]:
+        index = self.indices[item]
+        image = imageio.imread(self.parser.image_paths[index])[..., :3]
+        camera_id = self.parser.camera_ids[index]
+        K = self.parser.Ks_dict[camera_id].copy()  # undistorted K
+        params = self.parser.params_dict[camera_id]
+        camtoworlds = self.parser.camtoworlds[index]
+        mask = self.parser.mask_dict[camera_id]
+
+        if len(params) > 0:
+            # Images are distorted. Undistort them.
+            mapx, mapy = (
+                self.parser.mapx_dict[camera_id],
+                self.parser.mapy_dict[camera_id],
+            )
+            image = cv2.remap(image, mapx, mapy, cv2.INTER_LINEAR)
+            x, y, w, h = self.parser.roi_undist_dict[camera_id]
+            image = image[y : y + h, x : x + w]
+
+        if self.patch_size is not None:
+            # Random crop.
+            h, w = image.shape[:2]
+            x = np.random.randint(0, max(w - self.patch_size, 1))
+            y = np.random.randint(0, max(h - self.patch_size, 1))
+            image = image[y : y + self.patch_size, x : x + self.patch_size]
+            K[0, 2] -= x
+            K[1, 2] -= y
+
+        data = {
+            "K": torch.from_numpy(K).float(),
+            "camtoworld": torch.from_numpy(camtoworlds).float(),
+            "image": torch.from_numpy(image).float(),
+            "image_id": item,  # the index of the image in the dataset
+        }
+        if mask is not None:
+            data["mask"] = torch.from_numpy(mask).bool()
+
+        if self.load_depths:
+            # projected points to image plane to get depths
+            worldtocams = np.linalg.inv(camtoworlds)
+            image_name = self.parser.image_names[index]
+            point_indices = self.parser.point_indices[image_name]
+            points_world = self.parser.points[point_indices]
+            points_cam = (worldtocams[:3, :3] @ points_world.T + worldtocams[:3, 3:4]).T
+            points_proj = (K @ points_cam.T).T
+            points = points_proj[:, :2] / points_proj[:, 2:3]  # (M, 2)
+            depths = points_cam[:, 2]  # (M,)
+            # filter out points outside the image
+            selector = (
+                (points[:, 0] >= 0)
+                & (points[:, 0] < image.shape[1])
+                & (points[:, 1] >= 0)
+                & (points[:, 1] < image.shape[0])
+                & (depths > 0)
+            )
+            points = points[selector]
+            depths = depths[selector]
+            data["points"] = torch.from_numpy(points).float()
+            data["depths"] = torch.from_numpy(depths).float()
+
+        return data
+
 
 
 if __name__ == "__main__":
