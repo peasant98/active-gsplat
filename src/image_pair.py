@@ -38,7 +38,7 @@ class ImagePairDataset(Dataset):
             image2 = self.transform(image2)
 
         # Concatenate the two images as input
-        combined_images = torch.cat((image1, image2), dim=0)  # Concatenate along the channel dimension
+        combined_images = torch.cat((image1, image2), dim=0)
 
         return combined_images, torch.tensor(label, dtype=torch.float)
     
