@@ -21,6 +21,9 @@ import nerfview
 import numpy as np
 import torch
 import torch.nn.functional as F
+
+from torchvision import models, transforms
+
 import tqdm
 import tyro
 import viser
@@ -51,6 +54,21 @@ from gsplat.distributed import cli
 from gsplat.rendering import rasterization
 from gsplat.strategy import DefaultStrategy, MCMCStrategy
 from gsplat.optimizers import SelectiveAdam
+
+# code for models is outside, use hacks for now
+import sys
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")))
+
+from scripts.train_resnet import ResNetBinaryClassifier
+
+
+RESNET_MODEL_PATH = "../models/kitchen_resnet.pth" 
+
+
+IMAGE_TRANSFORM = transforms.Compose([
+    transforms.Resize((256, 256)),
+    transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+])
 
 
 @dataclass
@@ -99,7 +117,7 @@ class Config:
     # Initialization strategy
     init_type: str = "random"
     # Initial number of GSs. Ignored if using sfm
-    init_num_pts: int = 100_000
+    init_num_pts: int = 50_000
     # Initial extent of GSs as a multiple of the camera extent. Ignored if using sfm
     init_extent: float = 3.0
     # Degree of spherical harmonics
@@ -293,6 +311,14 @@ class ActiveRunner:
         self.local_rank = local_rank
         self.world_size = world_size
         self.device = f"cuda:{local_rank}"
+        
+        # load in model
+        self.pref_model = ResNetBinaryClassifier()
+        
+        # Load the model
+        self.pref_model.load_state_dict(torch.load(RESNET_MODEL_PATH))
+        
+        self.pref_model.to(self.device)
 
         # Where to dump results.
         os.makedirs(cfg.result_dir, exist_ok=True)
@@ -304,7 +330,10 @@ class ActiveRunner:
         os.makedirs(self.stats_dir, exist_ok=True)
         self.render_dir = f"{cfg.result_dir}/renders"
         os.makedirs(self.render_dir, exist_ok=True)
-
+        
+        self.dataset_dir = f"{cfg.result_dir}/dataset"
+        os.makedirs(self.dataset_dir, exist_ok=True)
+        
         # Tensorboard
         self.writer = SummaryWriter(log_dir=f"{cfg.result_dir}/tb")
 
@@ -318,7 +347,6 @@ class ActiveRunner:
         
         # construct two sets:
         # initial set for initialization
-        
         # train set for adding new views.
         self.initialset = ActiveDataset(
             self.parser,
@@ -334,7 +362,13 @@ class ActiveRunner:
             load_depths=cfg.depth_loss,
         )
         
-        import pdb; pdb.set_trace()
+        # all set
+        self.allset = ActiveDataset(
+            self.parser,
+            split="all",
+            patch_size=cfg.patch_size,
+            load_depths=cfg.depth_loss,
+        )
         
         self.parser = Parser(
             data_dir=cfg.data_dir,
@@ -529,6 +563,376 @@ class ActiveRunner:
             render_colors[~masks] = 0
         return render_colors, render_alphas, info
 
+    def view_selection(self, method="random", step=100):
+        if method == "random":
+            self.initialset.add_new_random_view()
+        elif method == "fisher":
+            # add new fisherrf view
+            view_idx = self.fisher_view_selection(step)
+            print(f"Adding view {view_idx} to the training set.")
+            time.sleep(2)
+            self.initialset.add_new_view(view_idx)
+        elif method == 'pref_model':
+            # add new view based on preference model
+            view_idx = self.pref_model_view_selection(step)
+            print(f"Adding view {view_idx} to the training set from preference model.")
+            time.sleep(2)
+            self.initialset.add_new_view(view_idx)
+            
+        else:
+            raise ValueError(f"Unknown view selection method: {method}")
+    
+    def pref_model_view_selection(self, step, method='pairs'):
+        """
+        preference model view selection
+        
+        if the method is pairs, perform the following algorithm
+        
+        1. iterate through image x_i, x_i + 1
+        2. compute the preferred image between x_i, x_i + 1
+        3. compare this preferred image with the next image x_i + 2
+        4. keep doing this and taking the preferred till the end.
+        
+        other way:
+        from all pairs, take the one which has the highest amount of positive votes (preferred over other images)
+        """
+        
+        candidate_cams = self.initialset.train_indices
+        idx_to_data = {}
+        for candidate_cam in tqdm.tqdm(candidate_cams, desc="Rendering Data"):
+            # Render the data
+            data = self.initialset.get_item_from_index(-1, candidate_cam)
+            render_pkg = self.render_pkg(data, step)
+            
+            # convert rest to cpu
+            render_pkg["colors"] = render_pkg["colors"].cpu()
+            # Add to dict
+            idx_to_data[candidate_cam] = render_pkg
+        
+        # construct a 30 by 30 comparison matrix
+        pairwise_size = 30
+        pairwise_matrix = torch.zeros(pairwise_size, pairwise_size)
+           
+        # take pairwise_size samples from the candidate_cams
+        random_selection = np.random.choice(candidate_cams, pairwise_size, replace=False)
+        
+        # iterate through the pairwise matrix
+        for i in tqdm.tqdm(range(pairwise_size), desc="Pairwise Comparisons"):
+            for j in range(pairwise_size):
+                if i == j:
+                    continue
+                
+                # Get the data for the two images
+                img_i = idx_to_data[random_selection[i]]["colors"]
+                img_j = idx_to_data[random_selection[j]]["colors"]
+                
+                # put both on the gpu
+                img_i = img_i.to(self.device)
+                img_j = img_j.to(self.device)
+                
+                # Remove first dim from both
+                img_i = img_i.squeeze(0).permute(2, 0, 1)
+                img_j = img_j.squeeze(0).permute(2, 0, 1)
+                
+                img_i = IMAGE_TRANSFORM(img_i)
+                img_j = IMAGE_TRANSFORM(img_j)
+                
+                concat_img = torch.cat([img_i, img_j], dim=0).unsqueeze(0)
+                
+                # Feed into model
+                torch.cuda.empty_cache()
+                score = self.pref_model(concat_img)
+                
+                if score > 0.5:
+                    # Image i is preferred over image j
+                    pairwise_matrix[i, j] = 1
+                else:
+                    pairwise_matrix[i, j] = -1
+        
+        # get the index of the image with the highest number of votes
+        pairwise_matrix = pairwise_matrix.numpy()
+        scores = np.sum(pairwise_matrix > 0, axis=1)
+        best = np.argmax(scores)
+        
+        return random_selection[best]
+            
+        
+    def fisher_single_view_selection(self, H_train, rgb_weight=1.0, depth_weight=1.0, step=100):
+        I_train = torch.reciprocal(H_train + 1e-6)
+        
+        device = self.device
+        cfg = self.cfg
+        
+        acq_scores = torch.zeros(len(self.initialset.train_indices))
+        i = 0
+        for idx in tqdm.tqdm(self.initialset.train_indices, desc="Fisher view selection"):
+            data = self.initialset.get_item_from_index(-1, idx)
+            # add 1 dim to beginning
+            camtoworlds = data["camtoworld"].to(device)
+            # add 1 dim to beginning
+            camtoworlds = camtoworlds.unsqueeze(0)
+            Ks = data["K"].to(device)
+            Ks = Ks.unsqueeze(0)
+
+            pixels = data["image"].to(device) / 255.0  # [1, H, W, 3]
+            pixels = pixels.unsqueeze(0)
+            num_train_rays_per_step = (
+                pixels.shape[0] * pixels.shape[1] * pixels.shape[2]
+            )
+            image_ids = [data["image_id"]]
+            image_ids = torch.tensor(image_ids, device=device)
+            masks = data["mask"].to(device) if "mask" in data else None  # [1, H, W]
+            if cfg.depth_loss:
+                points = data["points"].to(device)  # [1, M, 2]
+                depths_gt = data["depths"].to(device)  # [1, M]
+
+            height, width = pixels.shape[1:3]
+
+            sh_degree_to_use = min(step // cfg.sh_degree_interval, cfg.sh_degree)
+            
+            # zero out self.splat gradient
+            for optimizer in self.optimizers.values():
+                optimizer.zero_grad(set_to_none=True)
+
+            # forward
+            renders, alphas, info = self.rasterize_splats(
+                camtoworlds=camtoworlds,
+                Ks=Ks,
+                width=width,
+                height=height,
+                sh_degree=sh_degree_to_use,
+                near_plane=cfg.near_plane,
+                far_plane=cfg.far_plane,
+                image_ids=image_ids,
+                render_mode="RGB+ED" if cfg.depth_loss else "RGB",
+                masks=masks,
+            )
+            if renders.shape[-1] == 4:
+                colors, depths = renders[..., 0:3], renders[..., 3:4]
+            else:
+                colors, depths = renders, None
+
+            # run the back ward
+            colors.backward(gradient=torch.ones_like(colors))            
+            # render an image based on camera view
+            
+            # get the gradients of all parameters wrt the color
+            cur_H = torch.cat([p.grad.detach().reshape(-1) for p in self.splats.values()])
+            
+            I_acq = cur_H
+            acq_scores[i] += (torch.sum(I_acq * I_train).item() / 1000000)
+            
+            for optimizer in self.optimizers.values():
+                optimizer.zero_grad(set_to_none=True)
+                
+            i = i + 1
+
+                
+        # go through the cameras in the initial set that were not used for training so far
+        _, indices = torch.sort(acq_scores, descending=True)
+        
+        candidate_cams = [self.initialset.train_indices[idx] for idx in indices]
+        selected_idxs = [candidate_cams[i] for i in indices[:1].tolist()]
+        return selected_idxs[0]
+        
+        
+    def render_pkg(self, data, step, no_grad=True):
+        """ get render result from a data package """
+        
+        device = self.device
+        cfg = self.cfg
+        
+        camtoworlds = data["camtoworld"].to(device)
+        # add 1 dim to beginning
+        camtoworlds = camtoworlds.unsqueeze(0)
+        Ks = data["K"].to(device)
+        Ks = Ks.unsqueeze(0)
+
+        pixels = data["image"].to(device) / 255.0  # [1, H, W, 3]
+        pixels = pixels.unsqueeze(0)
+        num_train_rays_per_step = (
+            pixels.shape[0] * pixels.shape[1] * pixels.shape[2]
+        )
+        image_ids = [data["image_id"]]
+        image_ids = torch.tensor(image_ids, device=device)
+        masks = data["mask"].to(device) if "mask" in data else None  # [1, H, W]
+        if cfg.depth_loss:
+            points = data["points"].to(device)  # [1, M, 2]
+            depths_gt = data["depths"].to(device)  # [1, M]
+
+        height, width = pixels.shape[1:3]
+
+        sh_degree_to_use = min(step // cfg.sh_degree_interval, cfg.sh_degree)
+        
+        for optimizer in self.optimizers.values():
+            optimizer.zero_grad(set_to_none=True)
+            
+        # forward
+        with torch.no_grad():
+            renders, alphas, info = self.rasterize_splats(
+                camtoworlds=camtoworlds,
+                Ks=Ks,
+                width=width,
+                height=height,
+                sh_degree=sh_degree_to_use,
+                near_plane=cfg.near_plane,
+                far_plane=cfg.far_plane,
+                image_ids=image_ids,
+                render_mode="RGB+ED" if cfg.depth_loss else "RGB",
+                masks=masks,
+            )
+
+        if renders.shape[-1] == 4:
+            colors, depths = renders[..., 0:3], renders[..., 3:4]
+        else:
+            colors, depths = renders, None
+        return {"colors": colors, "depths": depths}
+        
+    
+    def fisher_view_selection(self, step, rgb_weight=1.0, depth_weight=1.0):
+        # get current training views
+        items = []
+        device = self.device
+        cfg = self.cfg
+        
+        H_train = None
+        
+        # get the hessian
+        for data in tqdm.tqdm(self.initialset, desc="Going through old dataset dataset"):
+            camtoworlds = data["camtoworld"].to(device)
+            # add 1 dim to beginning
+            camtoworlds = camtoworlds.unsqueeze(0)
+            Ks = data["K"].to(device)
+            Ks = Ks.unsqueeze(0)
+
+            pixels = data["image"].to(device) / 255.0  # [1, H, W, 3]
+            pixels = pixels.unsqueeze(0)
+            num_train_rays_per_step = (
+                pixels.shape[0] * pixels.shape[1] * pixels.shape[2]
+            )
+            image_ids = [data["image_id"]]
+            image_ids = torch.tensor(image_ids, device=device)
+            masks = data["mask"].to(device) if "mask" in data else None  # [1, H, W]
+            if cfg.depth_loss:
+                points = data["points"].to(device)  # [1, M, 2]
+                depths_gt = data["depths"].to(device)  # [1, M]
+
+            height, width = pixels.shape[1:3]
+
+            sh_degree_to_use = min(step // cfg.sh_degree_interval, cfg.sh_degree)
+            
+            # zero out self.splat gradianet
+            for optimizer in self.optimizers.values():
+                optimizer.zero_grad(set_to_none=True)
+
+            # forward
+            renders, alphas, info = self.rasterize_splats(
+                camtoworlds=camtoworlds,
+                Ks=Ks,
+                width=width,
+                height=height,
+                sh_degree=sh_degree_to_use,
+                near_plane=cfg.near_plane,
+                far_plane=cfg.far_plane,
+                image_ids=image_ids,
+                render_mode="RGB+ED" if cfg.depth_loss else "RGB",
+                masks=masks,
+            )
+            if renders.shape[-1] == 4:
+                colors, depths = renders[..., 0:3], renders[..., 3:4]
+            else:
+                colors, depths = renders, None
+
+            # run the back ward
+            colors.backward(gradient=torch.ones_like(colors))            
+            # render an image based on camera view
+            
+            # get the gradients of all parameters wrt the color
+            cur_H = torch.cat([p.grad.detach().reshape(-1) for p in self.splats.values()])
+            
+            if H_train is None:
+                H_train = cur_H
+            else:
+                H_train += cur_H
+            
+            for optimizer in self.optimizers.values():
+                optimizer.zero_grad(set_to_none=True)
+        return self.fisher_single_view_selection(H_train, rgb_weight, depth_weight, step)
+
+    
+    def render_dataset(self, step):
+        # go through the camera paths present in the dataset
+        device = self.device
+        cfg = self.cfg
+
+        # save the image as a png
+        # get most recent image saved by id
+        img_list = (os.listdir(f"{self.dataset_dir}"))
+        # get it list
+        int_list = [int(img.split(".")[0][3:]) for img in img_list]
+        # sort it
+        int_list.sort()
+        # if empty, start at 0
+        if len(int_list) == 0:
+            img_id = 0
+        # get latest img id based from img_id.png
+        else:
+            img_id = int_list[-1] + 1
+            
+        print(img_id)
+
+        # Add tqdm for progress bar
+        for data in tqdm.tqdm(self.allset, desc="Rendering dataset"):
+            camtoworlds = data["camtoworld"].to(device)
+            # add 1 dim to beginning
+            camtoworlds = camtoworlds.unsqueeze(0)
+            Ks = data["K"].to(device)
+            Ks = Ks.unsqueeze(0)
+
+            pixels = data["image"].to(device) / 255.0  # [1, H, W, 3]
+            pixels = pixels.unsqueeze(0)
+            num_train_rays_per_step = (
+                pixels.shape[0] * pixels.shape[1] * pixels.shape[2]
+            )
+            image_ids = [data["image_id"]]
+            image_ids = torch.tensor(image_ids, device=device)
+            masks = data["mask"].to(device) if "mask" in data else None  # [1, H, W]
+            if cfg.depth_loss:
+                points = data["points"].to(device)  # [1, M, 2]
+                depths_gt = data["depths"].to(device)  # [1, M]
+
+            height, width = pixels.shape[1:3]
+
+            sh_degree_to_use = min(step // cfg.sh_degree_interval, cfg.sh_degree)
+
+            # forward
+            # no grad
+            with torch.no_grad():
+                renders, alphas, info = self.rasterize_splats(
+                    camtoworlds=camtoworlds,
+                    Ks=Ks,
+                    width=width,
+                    height=height,
+                    sh_degree=sh_degree_to_use,
+                    near_plane=cfg.near_plane,
+                    far_plane=cfg.far_plane,
+                    image_ids=image_ids,
+                    render_mode="RGB+ED" if cfg.depth_loss else "RGB",
+                    masks=masks,
+                )
+                if renders.shape[-1] == 4:
+                    colors, depths = renders[..., 0:3], renders[..., 3:4]
+                else:
+                    colors, depths = renders, None
+
+            canvas = colors.detach().cpu().numpy()
+            canvas = canvas.reshape(-1, *canvas.shape[2:])
+            imageio.imwrite(
+                f"{self.dataset_dir}/img{img_id}.png",
+                (canvas * 255).astype(np.uint8),
+            )
+            img_id += 1
+        
     def train(self):
         cfg = self.cfg
         device = self.device
@@ -597,10 +1001,14 @@ class ActiveRunner:
         global_tic = time.time()
         pbar = tqdm.tqdm(range(init_step, max_steps))
         for step in pbar:
-            
+
             # every 2000 steps, we add a new view to the training set.
-            if step % 1000 == 999:
-                self.initialset.add_new_random_view()
+            if step % 2000 == 1999:
+                print("Adding new view to the training set.")
+                # if step % 2000 == 1999:
+                #     self.render_dataset(step)
+                # run the view selection method 
+                self.view_selection("pref_model", step)
                 # reinitialize the loader
                 initial_loader = torch.utils.data.DataLoader(
                     self.initialset,
@@ -646,7 +1054,7 @@ class ActiveRunner:
 
             # sh schedule
             sh_degree_to_use = min(step // cfg.sh_degree_interval, cfg.sh_degree)
-
+            
             # forward
             renders, alphas, info = self.rasterize_splats(
                 camtoworlds=camtoworlds,

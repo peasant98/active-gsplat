@@ -415,7 +415,7 @@ class ActiveDataset:
         split: str = "train",
         patch_size: Optional[int] = None,
         load_depths: bool = False,
-        num_initial_views: int = 10,
+        num_initial_views: int = 20,
     ):
         self.parser = parser
         self.split = split
@@ -431,13 +431,19 @@ class ActiveDataset:
             # get num_initial_views evenly spaced indices
             step = len(indices) // num_initial_views
             initial_indices =  [indices[i] for i in range(0, len(indices), step)][:num_initial_views]
-            self.train_indices = [index for index in indices if index not in initial_indices]
+            self.rest_indices = np.array([index for index in indices if index not in initial_indices])
+            # construct train and validation indices from rest_indices
+            self.val_indices = self.rest_indices[self.rest_indices % self.parser.test_every == 0]
+            # rest is the training indices
+            self.train_indices = [index for index in self.rest_indices if index not in self.val_indices]
+            
             
             if split == "initial":
                 self.indices = initial_indices
             else:
                 self.indices = self.train_indices
-
+        elif split == "all":
+            self.indices = indices
         else:
             self.indices = indices[indices % self.parser.test_every == 0]
 
@@ -448,11 +454,16 @@ class ActiveDataset:
         self.train_indices.remove(idx)
         self.indices.append(idx)
     
+    def add_new_view(self, idx):
+        # add a idx from self.train_indices to self.indices
+        # remove idx from self.train_indices
+        self.train_indices.remove(idx)
+        self.indices.append(idx)
+    
     def __len__(self):
         return len(self.indices)
-
-    def __getitem__(self, item: int) -> Dict[str, Any]:
-        index = self.indices[item]
+    
+    def get_item_from_index(self, item: int, index: int) -> Dict[str, Any]:
         image = imageio.imread(self.parser.image_paths[index])[..., :3]
         camera_id = self.parser.camera_ids[index]
         K = self.parser.Ks_dict[camera_id].copy()  # undistorted K
@@ -513,6 +524,10 @@ class ActiveDataset:
 
         return data
 
+
+    def __getitem__(self, item: int) -> Dict[str, Any]:
+        index = self.indices[item]
+        return self.get_item_from_index(item, index)
 
 
 if __name__ == "__main__":
