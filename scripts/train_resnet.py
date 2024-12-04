@@ -37,7 +37,51 @@ class ImagePairDataset(Dataset):
         # Concatenate the two images as input
         combined_images = torch.cat((image1, image2), dim=0)  # Concatenate along the channel dimension
 
-        return combined_images, torch.tensor(label, dtype=torch.float)
+        return (image1, image2), torch.tensor(label, dtype=torch.float)
+
+class ResNetPreferenceModel(nn.Module):
+    def __init__(self, pretrained_model_name="resnet50"):
+        super(ResNetPreferenceModel, self).__init__()
+        
+        # Load pre-trained ResNet for two independent feature heads
+        self.resnet1 = models.resnet34(weights=models.ResNet34_Weights.DEFAULT)
+        self.resnet2 = models.resnet34(weights=models.ResNet34_Weights.DEFAULT)
+        
+        # Modify input layers of both ResNets to accept single 3-channel image
+        self.resnet1.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3, bias=False)
+        self.resnet2.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3, bias=False)
+        
+        # Extract number of features from ResNet output
+        num_features = self.resnet1.fc.in_features
+        
+        # Remove the classification heads; we only need features
+        self.resnet1.fc = nn.Identity()
+        self.resnet2.fc = nn.Identity()
+        
+        # Final classification layer
+        self.fc = nn.Sequential(
+            nn.Linear(num_features * 2, 1),  # Binary classification
+            nn.Sigmoid()  # Output probability
+        )
+        
+        self.linear = nn.Linear(num_features, 1)
+
+    def forward(self, img1, img2):
+        # Extract features from both images
+        features1 = self.resnet1(img1)
+        features2 = self.resnet2(img2)
+        
+        x1 = self.linear(features1)
+        x2 = self.linear(features2)
+        
+        output = torch.exp(x1) / (torch.exp(x1) + torch.exp(x2))
+        
+        # Element-wise max of the two feature vectors
+        # combined_features = torch.cat((features1, features2), dim=1)
+        
+        # Classification based on the selected features
+        # output = self.fc(combined_features)
+        return output
 
 # Load pre-trained ResNet and modify it
 class ResNetBinaryClassifier(nn.Module):
@@ -68,8 +112,8 @@ def train_resnet(
     val_loader, 
     criterion, 
     optimizer, 
-    num_epochs=5,
-    save_path = "kitchen_resnet.pth"
+    num_epochs=10,
+    save_path = "kitchen_resnet_big.pth"
 ):
 
     print("Beginning training... \n")
@@ -83,9 +127,10 @@ def train_resnet(
         train_progress = tqdm.tqdm(train_loader, desc="Training", leave=False)
         for images, labels in train_progress:
             optimizer.zero_grad()
+            image1, image2 = images
 
             # Forward pass
-            outputs = model(images)
+            outputs = model(image1, image2)
             outputs = outputs.squeeze()  # Remove extra dimension: [batch_size, 1] -> [batch_size]
 
             # Compute loss
@@ -104,7 +149,8 @@ def train_resnet(
         val_progress = tqdm.tqdm(val_loader, desc="Validating", leave=False)
         with torch.no_grad():
             for images, labels in val_progress:
-                outputs = model(images)
+                image1, image2 = images
+                outputs = model(image1, image2)
                 outputs = outputs.squeeze()
 
                 # Compute loss
@@ -133,7 +179,8 @@ def test_resnet(model, test_loader):
     test_progress = tqdm.tqdm(test_loader, desc="Testing")
     with torch.no_grad():
         for images, labels in test_progress:
-            outputs = model(images)
+            image1, image2 = images
+            outputs = model(image1, image2)
             outputs = outputs.squeeze()
 
             # Compute accuracy
@@ -164,9 +211,9 @@ if __name__ == "__main__":
 
     # Define transformations
     transform = transforms.Compose([
-        transforms.Resize((224, 224)),
+        transforms.Resize((256, 256)),
         transforms.ToTensor(),
-        transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])  # Normalization for concatenated input
+        # transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])  # Normalization for concatenated input
     ])
 
     # Load dataset
@@ -189,7 +236,7 @@ if __name__ == "__main__":
     print("Dataset created... \n")
 
     # Initialize model, loss, and optimizer
-    model = ResNetBinaryClassifier()
+    model = ResNetPreferenceModel()
     criterion = nn.BCELoss()
     optimizer = optim.Adam(model.parameters(), lr=1e-4)
 

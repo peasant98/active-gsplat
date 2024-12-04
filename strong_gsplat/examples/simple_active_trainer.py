@@ -59,15 +59,14 @@ from gsplat.optimizers import SelectiveAdam
 import sys
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")))
 
-from scripts.train_resnet import ResNetBinaryClassifier
+from scripts.train_resnet import ResNetBinaryClassifier, ResNetPreferenceModel
 
 
-RESNET_MODEL_PATH = "../models/kitchen_resnet.pth" 
+RESNET_MODEL_PATH = "../models/model.pth" 
 
 
 IMAGE_TRANSFORM = transforms.Compose([
     transforms.Resize((256, 256)),
-    transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
 ])
 
 
@@ -108,14 +107,14 @@ class Config:
     steps_scaler: float = 1.0
 
     # Number of training steps
-    max_steps: int = 30_000
+    max_steps: int = 15_000
     # Steps to evaluate the model
     eval_steps: List[int] = field(default_factory=lambda: [7_000, 30_000])
     # Steps to save the model
     save_steps: List[int] = field(default_factory=lambda: [7_000, 30_000])
 
     # Initialization strategy
-    init_type: str = "random"
+    init_type: str = "sfm"
     # Initial number of GSs. Ignored if using sfm
     init_num_pts: int = 50_000
     # Initial extent of GSs as a multiple of the camera extent. Ignored if using sfm
@@ -181,7 +180,7 @@ class Config:
     bilateral_grid_shape: Tuple[int, int, int] = (16, 16, 8)
 
     # Enable depth loss. (experimental)
-    depth_loss: bool = False
+    depth_loss: bool = True
     # Weight for depth loss
     depth_lambda: float = 1e-2
 
@@ -232,6 +231,7 @@ def create_splats_with_optimizers(
     if init_type == "sfm":
         points = torch.from_numpy(parser.points).float()
         rgbs = torch.from_numpy(parser.points_rgb / 255.0).float()
+        print("Loaded SFM points:", points.shape)
     elif init_type == "random":
         points = init_extent * scene_scale * (torch.rand((init_num_pts, 3)) * 2 - 1)
         rgbs = torch.rand((init_num_pts, 3))
@@ -313,7 +313,7 @@ class ActiveRunner:
         self.device = f"cuda:{local_rank}"
         
         # load in model
-        self.pref_model = ResNetBinaryClassifier()
+        self.pref_model = ResNetPreferenceModel()
         
         # Load the model
         self.pref_model.load_state_dict(torch.load(RESNET_MODEL_PATH))
@@ -565,6 +565,7 @@ class ActiveRunner:
 
     def view_selection(self, method="random", step=100):
         if method == "random":
+            print("Adding random view to the training set.")
             self.initialset.add_new_random_view()
         elif method == "fisher":
             # add new fisherrf view
@@ -597,8 +598,31 @@ class ActiveRunner:
         from all pairs, take the one which has the highest amount of positive votes (preferred over other images)
         """
         
+        training_cams = self.initialset.indices
+        
+        train_features = []
+        
+        for training_cam in tqdm.tqdm(training_cams, desc="Getting train info"):
+            data = self.initialset.get_item_from_index(-1, training_cam)
+            render_pkg = self.render_pkg(data, step)
+            
+            img = render_pkg["colors"]
+            img = img.to(self.device)
+            img = img.squeeze(0).permute(2, 0, 1)
+            img = IMAGE_TRANSFORM(img)
+            
+            feature = self.pref_model.resnet1(img.unsqueeze(0))
+            
+            # put feature on cpu
+            feature = feature.cpu()
+            train_features.append(feature)
+            
+        
         candidate_cams = self.initialset.train_indices
         idx_to_data = {}
+        
+        best_score = -100000000
+        best_cam = None
         for candidate_cam in tqdm.tqdm(candidate_cams, desc="Rendering Data"):
             # Render the data
             data = self.initialset.get_item_from_index(-1, candidate_cam)
@@ -606,11 +630,39 @@ class ActiveRunner:
             
             # convert rest to cpu
             render_pkg["colors"] = render_pkg["colors"].cpu()
+            
+            img = render_pkg["colors"]
+            img = img.to(self.device)
+            img = img.squeeze(0).permute(2, 0, 1)
+            img = IMAGE_TRANSFORM(img)
+            
+            feature = self.pref_model.resnet1(img.unsqueeze(0))
+            
+            # put feature on cpu
+            feature = feature.cpu()
+            
+            # compare with all the training features
+            scores = []
+            for train_feature in train_features:
+                scores.append(1 - torch.nn.functional.cosine_similarity(feature, train_feature))
+                
+            scores = torch.stack(scores)
+            scores = scores.detach().numpy()
+            median_score = np.median(scores)
+            
+            if median_score > best_score:
+                best_score = median_score
+                best_cam = candidate_cam
+            
             # Add to dict
             idx_to_data[candidate_cam] = render_pkg
-        
+            
+            # run the model on the image and get feature vector
+            # img = render_pkg["colors"]
+        return best_cam
+        # use best cam        
         # construct a 30 by 30 comparison matrix
-        pairwise_size = 30
+        pairwise_size = 50
         pairwise_matrix = torch.zeros(pairwise_size, pairwise_size)
            
         # take pairwise_size samples from the candidate_cams
@@ -641,13 +693,15 @@ class ActiveRunner:
                 
                 # Feed into model
                 torch.cuda.empty_cache()
-                score = self.pref_model(concat_img)
+                score = self.pref_model(img_i.unsqueeze(0), img_j.unsqueeze(0))
+                
+                # get features from each model
                 
                 if score > 0.5:
                     # Image i is preferred over image j
-                    pairwise_matrix[i, j] = 1
-                else:
                     pairwise_matrix[i, j] = -1
+                else:
+                    pairwise_matrix[i, j] = 1
         
         # get the index of the image with the highest number of votes
         pairwise_matrix = pairwise_matrix.numpy()
@@ -1008,7 +1062,7 @@ class ActiveRunner:
                 # if step % 2000 == 1999:
                 #     self.render_dataset(step)
                 # run the view selection method 
-                self.view_selection("pref_model", step)
+                self.view_selection("random", step)
                 # reinitialize the loader
                 initial_loader = torch.utils.data.DataLoader(
                     self.initialset,

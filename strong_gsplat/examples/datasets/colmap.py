@@ -415,7 +415,7 @@ class ActiveDataset:
         split: str = "train",
         patch_size: Optional[int] = None,
         load_depths: bool = False,
-        num_initial_views: int = 20,
+        num_initial_views: int = 10,
     ):
         self.parser = parser
         self.split = split
@@ -449,7 +449,9 @@ class ActiveDataset:
 
     def add_new_random_view(self):
         # add a random idx from self.train_indices to self.indices
-        idx = np.random.choice(self.train_indices)
+        # take a random index from a subset of training indices
+        subset = np.random.choice(self.train_indices, 50)
+        idx = np.random.choice(subset)
         # remove idx from self.train_indices
         self.train_indices.remove(idx)
         self.indices.append(idx)

@@ -2,3 +2,9 @@ strong_gsplat/build/
 strong_gsplat/data/360_v2/
 *.pyc
 strong_gsplat/results/
+
+dataset/
+
+test_dataset/
+
+scripts/wandb/
