@@ -8,3 +8,11 @@ dataset/
 test_dataset/
 
 scripts/wandb/
+
+bike_dataset/
+bonsai_dataset/
+counter_dataset/
+room_dataset/
+one_percent_dataset_small/
+small_dataset/
+models/

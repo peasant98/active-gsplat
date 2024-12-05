@@ -17,10 +17,14 @@ class ImagePairDataset(Dataset):
         self.transform = transform
 
     def __len__(self):
-        return len(self.pairs)
+        return len(self.pairs) * 2
 
     def __getitem__(self, idx):
-        row = self.pairs.iloc[idx]
+        
+        real_idx = idx // 2
+        should_swap = idx % 2 == 1
+        
+        row = self.pairs.iloc[real_idx]
         image1_path = os.path.join(self.dataset_folder, row["Image_1"])
         image2_path = os.path.join(self.dataset_folder, row["Image_2"])
         label = int(row["Preference"])
@@ -36,6 +40,9 @@ class ImagePairDataset(Dataset):
 
         # Concatenate the two images as input
         combined_images = torch.cat((image1, image2), dim=0)  # Concatenate along the channel dimension
+        
+        if should_swap:
+            return (image2, image1), torch.tensor(1 - label, dtype=torch.float)
 
         return (image1, image2), torch.tensor(label, dtype=torch.float)
 
@@ -168,7 +175,7 @@ def train_resnet(
                 f"Val Accuracy: {val_accuracy:.4f}")
     
     # Save the model after training
-    torch.save(model.state_dict(), "kitchen_resnet.pth")
+    torch.save(model.state_dict(), save_path)
     print(f"Model saved to {save_path}")
 
 

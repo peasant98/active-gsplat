@@ -65,6 +65,9 @@ from scripts.train_resnet import ResNetBinaryClassifier, ResNetPreferenceModel
 RESNET_MODEL_PATH = "../models/model.pth" 
 
 
+RESNET_MODEL_PATH = "../scripts/bonsai_resnet.pth" 
+
+
 IMAGE_TRANSFORM = transforms.Compose([
     transforms.Resize((256, 256)),
 ])
@@ -73,7 +76,7 @@ IMAGE_TRANSFORM = transforms.Compose([
 @dataclass
 class Config:
     # Disable viewer
-    disable_viewer: bool = False
+    disable_viewer: bool = True
     # Path to the .pt files. If provide, it will skip training and run evaluation only.
     ckpt: Optional[List[str]] = None
     # Name of compression strategy to use
@@ -331,7 +334,7 @@ class ActiveRunner:
         self.render_dir = f"{cfg.result_dir}/renders"
         os.makedirs(self.render_dir, exist_ok=True)
         
-        self.dataset_dir = f"{cfg.result_dir}/dataset"
+        self.dataset_dir = f"{cfg.result_dir}/eval_dataset"
         os.makedirs(self.dataset_dir, exist_ok=True)
         
         # Tensorboard
@@ -378,7 +381,8 @@ class ActiveRunner:
             init_indices=self.initialset.indices,
         )
         
-        self.valset = ActiveDataset(self.parser, split="val")
+        self.valset = ActiveDataset(self.parser, split="val", patch_size=cfg.patch_size,
+            )
         self.scene_scale = self.parser.scene_scale * 1.1 * cfg.global_scale
         print("Scene scale:", self.scene_scale)
 
@@ -1060,9 +1064,9 @@ class ActiveRunner:
             if step % 2000 == 1999:
                 print("Adding new view to the training set.")
                 # if step % 2000 == 1999:
-                #     self.render_dataset(step)
+                    # self.render_dataset(step)
                 # run the view selection method 
-                self.view_selection("random", step)
+                self.view_selection("pref_model", step)
                 # reinitialize the loader
                 initial_loader = torch.utils.data.DataLoader(
                     self.initialset,
@@ -1350,6 +1354,9 @@ class ActiveRunner:
         device = self.device
         world_rank = self.world_rank
         world_size = self.world_size
+        
+        # render dataset
+        self.render_dataset(step)
 
         valloader = torch.utils.data.DataLoader(
             self.valset, batch_size=1, shuffle=False, num_workers=1

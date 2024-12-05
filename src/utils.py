@@ -25,7 +25,7 @@ def generate_image_pairs(dataset_folder, output_csv):
     
     # take a random percentage of the pairs
     random.shuffle(pairs)
-    pairs = pairs[:20000]
+    pairs = pairs[:1000]
     pairs_df = pd.DataFrame(pairs, columns=["Image_1", "Image_2"])
     pairs_df.to_csv(output_csv, index=False)
 
@@ -34,7 +34,7 @@ def generate_image_pairs(dataset_folder, output_csv):
 if __name__ == "__main__":
 
     # Paths
-    dataset_folder = "../dataset"
+    dataset_folder = "../room_dataset"
     pairs_csv = (dataset_folder + "/dataset_pairs.csv")
 
     # Generate pairs
