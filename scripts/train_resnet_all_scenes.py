@@ -10,10 +10,24 @@ import argparse
 import tqdm
 
 # Define custom dataset for image pairs
-class ImagePairDataset(Dataset):
-    def __init__(self, csv_file, dataset_folder, transform=None):
-        self.pairs = pd.read_csv(csv_file)
-        self.dataset_folder = dataset_folder
+class ImagePairFullDataset(Dataset):
+    def __init__(self, csv_files, dataset_folders=['bike_dataset', 'bonsai_dataset', 'counter_dataset', 'garden_dataset', 'stump_dataset', 'dataset', 'room_dataset'], transform=None):
+        """
+        full dataset with all pairs from diferent folders
+        """
+        pairs = None
+        
+        # for each folder, combine pairs
+        for folder in dataset_folders:
+            csv_file = os.path.join(folder, csv_files)
+            pair_folder = pd.read_csv(csv_file)
+            if pairs is None:
+                pairs = pair_folder
+            else:
+                pairs = pd.concat([pairs, pair_folder])
+        
+        self.pairs = pairs
+        self.dataset_folders = dataset_folders
         self.transform = transform
 
     def __len__(self):
@@ -25,8 +39,8 @@ class ImagePairDataset(Dataset):
         should_swap = idx % 2 == 1
         
         row = self.pairs.iloc[real_idx]
-        image1_path = os.path.join(self.dataset_folder, row["Image_1"])
-        image2_path = os.path.join(self.dataset_folder, row["Image_2"])
+        image1_path = os.path.join(row["Image_1"])
+        image2_path = os.path.join(row["Image_2"])
         label = int(row["Preference"])
 
         # Load images
@@ -76,7 +90,7 @@ class ResNetPreferenceModel(nn.Module):
     def forward(self, img1, img2):
         # Extract features from both images
         features1 = self.resnet1(img1)
-        features2 = self.resnet1(img2)
+        features2 = self.resnet2(img2)
         
         x1 = self.linear(features1)
         x2 = self.linear(features2)
@@ -201,18 +215,13 @@ def test_resnet(model, test_loader):
     print(f"Test Accuracy: {test_accuracy:.4f}")
 
 if __name__ == "__main__":
-
     parser = argparse.ArgumentParser(description="Train Resnet on human pref dataset for other view selection.")
-    parser.add_argument("--dataset_folder", "-d", type=str, required=True, default=None, help="Path to dataset where images are stored.")
     parser.add_argument("--csv_file", "-c", type=str, required=True, default=None, help="Path to CSV file with generated image pairs.")
+    parser.add_argument("--dataset_folder", "-d", type=str, required=False, default=None, help="Path to dataset where images are stored.")
     parser.add_argument("--save_path", "-s", type=str, help=" Path to save model checkpoint .pth")
     parser.add_argument("--batch_size", "-b", type=int, default=16, help = "Batch Size for model training")
     args = parser.parse_args()
 
-    if args.dataset_folder is None or args.dataset_folder == "" or args.dataset_folder == " ":
-        # print(args.dataset_folder)
-        raise ValueError("Invalid Dataset path")
-    
     if args.csv_file is None or args.csv_file == "" or args.csv_file == " ":
         raise ValueError("Invalid CSV File path")
 
@@ -224,7 +233,7 @@ if __name__ == "__main__":
     ])
 
     # Load dataset
-    full_dataset = ImagePairDataset(args.csv_file, args.dataset_folder, transform=transform)
+    full_dataset = ImagePairFullDataset(args.csv_file, transform=transform)
 
     # Define split sizes
     dataset_size = len(full_dataset)

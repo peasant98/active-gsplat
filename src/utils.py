@@ -34,7 +34,7 @@ def generate_image_pairs(dataset_folder, output_csv):
 if __name__ == "__main__":
 
     # Paths
-    dataset_folder = "../room_dataset"
+    dataset_folder = "../stump_dataset"
     pairs_csv = (dataset_folder + "/dataset_pairs.csv")
 
     # Generate pairs

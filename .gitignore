@@ -12,6 +12,8 @@ scripts/wandb/
 bike_dataset/
 bonsai_dataset/
 counter_dataset/
+garden_dataset/
+stump_dataset/
 room_dataset/
 one_percent_dataset_small/
 small_dataset/

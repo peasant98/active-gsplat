@@ -415,7 +415,7 @@ class ActiveDataset:
         split: str = "train",
         patch_size: Optional[int] = None,
         load_depths: bool = False,
-        num_initial_views: int = 10,
+        num_initial_views: int = 20,
     ):
         self.parser = parser
         self.split = split

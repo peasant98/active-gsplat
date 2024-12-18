@@ -62,10 +62,7 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".
 from scripts.train_resnet import ResNetBinaryClassifier, ResNetPreferenceModel
 
 
-RESNET_MODEL_PATH = "../models/model.pth" 
-
-
-RESNET_MODEL_PATH = "../scripts/bonsai_resnet.pth" 
+RESNET_MODEL_PATH = "../models/main_model.pth" 
 
 
 IMAGE_TRANSFORM = transforms.Compose([
@@ -76,13 +73,17 @@ IMAGE_TRANSFORM = transforms.Compose([
 @dataclass
 class Config:
     # Disable viewer
-    disable_viewer: bool = True
+    disable_viewer: bool = False
     # Path to the .pt files. If provide, it will skip training and run evaluation only.
     ckpt: Optional[List[str]] = None
     # Name of compression strategy to use
     compression: Optional[Literal["png"]] = None
     # Render trajectory path
     render_traj_path: str = "interp"
+    # if we should render the scene
+    should_render: bool = False
+    # view selection method
+    view_selection_method: str = "random"
 
     # Path to the Mip-NeRF 360 dataset
     data_dir: str = "data/360_v2/garden"
@@ -314,6 +315,8 @@ class ActiveRunner:
         self.local_rank = local_rank
         self.world_size = world_size
         self.device = f"cuda:{local_rank}"
+        self.view_selection_method = cfg.view_selection_method
+        self.should_render = cfg.should_render
         
         # load in model
         self.pref_model = ResNetPreferenceModel()
@@ -1059,14 +1062,13 @@ class ActiveRunner:
         global_tic = time.time()
         pbar = tqdm.tqdm(range(init_step, max_steps))
         for step in pbar:
-
             # every 2000 steps, we add a new view to the training set.
             if step % 2000 == 1999:
                 print("Adding new view to the training set.")
-                # if step % 2000 == 1999:
-                    # self.render_dataset(step)
+                if self.should_render:
+                    self.render_dataset(step)
                 # run the view selection method 
-                self.view_selection("pref_model", step)
+                self.view_selection(self.view_selection_method, step)
                 # reinitialize the loader
                 initial_loader = torch.utils.data.DataLoader(
                     self.initialset,
