@@ -8,3 +8,22 @@ This work supports the paper [HP-GS: Human Preference Next Best View Selection f
 
 
 
+## Training the Preference Model
+
+Docs in progress!
+
+
+## Running View Selection
+
+Run the below bash and fill it in with your customizations:
+
+```bash
+cd strong_gsplat/
+
+python3 examples/simple_active_trainer.py default --disable_viewer --data_factor <specify> \\
+--render_traj_path ellipse --data_dir data/360_v2/<object>/ \\
+--result_dir results/<specify>/ --view_selection_method <view selection method> --should_render False
+
+```
+
+`view_selection_method` is one of `random`, `fisher`, or `pref_model` (you will need to specify a path to the pref model)
