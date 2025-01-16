@@ -11,10 +11,11 @@ import tqdm
 
 # Define custom dataset for image pairs
 class ImagePairDataset(Dataset):
-    def __init__(self, csv_file, dataset_folder, transform=None):
+    def __init__(self, csv_file, dataset_folder, transform=None, label="Human Preference"):
         self.pairs = pd.read_csv(csv_file)
         self.dataset_folder = dataset_folder
         self.transform = transform
+        self.label = label
 
     def __len__(self):
         return len(self.pairs) * 2
@@ -27,7 +28,7 @@ class ImagePairDataset(Dataset):
         row = self.pairs.iloc[real_idx]
         image1_path = os.path.join(self.dataset_folder, row["Image_1"])
         image2_path = os.path.join(self.dataset_folder, row["Image_2"])
-        label = int(row["Preference"])
+        label = int(row[self.label])
 
         # Load images
         image1 = Image.open(image1_path).convert("RGB")
@@ -174,10 +175,13 @@ def train_resnet(
                 f"Val Loss: {val_loss / len(val_loader):.4f}, "
                 f"Val Accuracy: {val_accuracy:.4f}")
     
+        # Save the model after training
+        torch.save(model.state_dict(), save_path)
+        print(f"Model saved to {save_path}")
+
     # Save the model after training
     torch.save(model.state_dict(), save_path)
     print(f"Model saved to {save_path}")
-
 
 def test_resnet(model, test_loader):
     model.eval()
@@ -205,8 +209,9 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Train Resnet on human pref dataset for other view selection.")
     parser.add_argument("--dataset_folder", "-d", type=str, required=True, default=None, help="Path to dataset where images are stored.")
     parser.add_argument("--csv_file", "-c", type=str, required=True, default=None, help="Path to CSV file with generated image pairs.")
-    parser.add_argument("--save_path", "-s", type=str, help=" Path to save model checkpoint .pth")
+    parser.add_argument("--save_path", "-s", default = ".pth", type=str, help=" Path to save model checkpoint .pth")
     parser.add_argument("--batch_size", "-b", type=int, default=16, help = "Batch Size for model training")
+    parser.add_argument("--label", "-l", type=str, default="Human Preference", help="Determines whether to use LLM agent to label preferences.")
     args = parser.parse_args()
 
     if args.dataset_folder is None or args.dataset_folder == "" or args.dataset_folder == " ":
@@ -224,7 +229,7 @@ if __name__ == "__main__":
     ])
 
     # Load dataset
-    full_dataset = ImagePairDataset(args.csv_file, args.dataset_folder, transform=transform)
+    full_dataset = ImagePairDataset(args.csv_file, args.dataset_folder, transform=transform, label = args.label)
 
     # Define split sizes
     dataset_size = len(full_dataset)
@@ -248,7 +253,7 @@ if __name__ == "__main__":
     optimizer = optim.Adam(model.parameters(), lr=1e-4)
 
     # Running training
-    train_resnet(model, train_loader=train_loader, val_loader=val_loader, criterion=criterion, optimizer=optimizer, save_path=args.save_path)
+    train_resnet(model, train_loader=train_loader, val_loader=val_loader, criterion=criterion, optimizer=optimizer, save_path=args.save_path, num_epochs=5)
 
     # Running test
     test_resnet(model, test_loader=test_loader)
