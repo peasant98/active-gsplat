@@ -67,7 +67,7 @@ if __name__ == "__main__":
 
     ## Ablation: LLM-labelled Data
     if args.label_llm:
-        genai.configure(api_key="AIzaSyCCnRXGXyDzH1fgBGX3eYuk7gJF1takZKc")
+        genai.configure(api_key=os.environ["Gemini_API_Key"])
         model = genai.GenerativeModel(model_name="gemini-1.5-flash")
 
     # Add a column for labels if it doesn't exist
