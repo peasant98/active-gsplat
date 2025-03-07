@@ -18,6 +18,7 @@ python3 scripts/train_pref_model.py -m resnet -c [path to csv file] -d [path to 
 
 ```
 
+The preference models are stored in `scripts/pref_models.py`.
 
 ## Running View Selection
 
