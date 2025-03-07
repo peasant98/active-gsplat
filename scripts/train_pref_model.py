@@ -113,7 +113,7 @@ if __name__ == "__main__":
 
     # Define transformations
     transform = transforms.Compose([
-        transforms.Resize((256, 256)),
+        transforms.Resize((256, 256)) if args.model == "resnet" else transforms.Resize((224, 224)),
         transforms.ToTensor(),
     ])
 
