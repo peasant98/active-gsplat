@@ -10,7 +10,7 @@ This work supports the paper [HP-GS: Human Preference Next Best View Selection f
 
 ## Training the Preference Model
 
-To train a specific preference model (say Resnet), run the following script:
+To train a specific preference model (resnet or dino), run the following script:
 
 ```bash
 
