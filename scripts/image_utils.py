@@ -56,3 +56,29 @@ class ImagePairFullDataset(Dataset):
             return (image2, image1), torch.tensor(1 - label, dtype=torch.float)
 
         return (image1, image2), torch.tensor(label, dtype=torch.float)
+
+class ImagePairSceneDataset(Dataset):
+    def __init__(self, csv_file, dataset_folder, transform=None):
+        self.pairs = pd.read_csv(csv_file)
+        self.dataset_folder = dataset_folder
+        self.transform = transform
+
+    def __len__(self):
+        return len(self.pairs)
+
+    def __getitem__(self, idx):
+        row = self.pairs.iloc[idx]
+        image1_path = os.path.join(self.dataset_folder, row["Image_1"])
+        image2_path = os.path.join(self.dataset_folder, row["Image_2"])
+        label = int(row["Preference"])
+
+        # Load images
+        image1 = Image.open(image1_path).convert("RGB")
+        image2 = Image.open(image2_path).convert("RGB")
+
+        # Apply transformations
+        if self.transform:
+            image1 = self.transform(image1)
+            image2 = self.transform(image2)
+
+        return (image1, image2), torch.tensor(label, dtype=torch.float)

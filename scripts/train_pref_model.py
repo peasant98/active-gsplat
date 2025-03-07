@@ -1,15 +1,12 @@
 import torch
 import torch.nn as nn
 import torch.optim as optim
-from torchvision import models, transforms
-from torch.utils.data import Dataset, DataLoader, random_split
-from PIL import Image
-import pandas as pd
-import os
+from torchvision import transforms
+from torch.utils.data import DataLoader, random_split
 import argparse
 import tqdm
 
-from src.preference_models import Dinov2PreferenceModel, ResNetPreferenceModel
+from preference_models import Dinov2PreferenceModel, ResNetPreferenceModel
 from image_utils import *
 
 def train(
@@ -111,18 +108,17 @@ if __name__ == "__main__":
     if args.csv_file is None or args.csv_file == "" or args.csv_file == " ":
         raise ValueError("Invalid CSV File path")
     
-    if args.model is not "resent" or "dino":
+    if "dino" not in args.model and "resnet" not in args.model:
         raise ValueError("Invalid Model type. Choose between 'resnet' or 'dino'")
 
     # Define transformations
     transform = transforms.Compose([
         transforms.Resize((256, 256)),
         transforms.ToTensor(),
-        # transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])  # Normalization for concatenated input
     ])
 
     # Load dataset
-    full_dataset = ImagePairFullDataset(args.csv_file, transform=transform)
+    full_dataset = ImagePairSceneDataset(args.csv_file, args.dataset_folder, transform=transform)
 
     # Define split sizes
     dataset_size = len(full_dataset)
