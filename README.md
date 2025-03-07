@@ -14,7 +14,7 @@ To train a specific preference model (say Resnet), run the following script:
 
 ```bash
 
-python3 scripts/train_pref_model.py -m resnet -c < path to csv file > -d < path to data folder storing images > -s <path to model checkpoint .pth > -b 16
+python3 scripts/train_pref_model.py -m resnet -c [path to csv file] -d [path to images] -s [path to model checkpoint .pth] -b 16
 
 ```
 
