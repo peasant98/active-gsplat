@@ -49,6 +49,7 @@ if __name__ == "__main__":
     parser.add_argument("--dataset_folder", "-d", type=str, required=True, help="Path to dataset where images are stored.")
     parser.add_argument("--csv_file", "-c", type=str, required=True, help="Path to CSV file with generated image pairs.")
     parser.add_argument("--label_llm", action="store_true", default=False, help="Determines whether to use LLM agent to label preferences.")
+    parser.add_argument("--llm_model", type=str, default="gemini-2.0-flash", help="LLM model to use for labeling. Default is 'gemini-2.0-flash'.")
     args = parser.parse_args()
 
     if not args.dataset_folder or not os.path.isdir(args.dataset_folder):
@@ -69,7 +70,7 @@ if __name__ == "__main__":
         
         import google.generativeai as genai
         genai.configure(api_key=os.environ["Gemini_API_Key"])
-        model = genai.GenerativeModel(model_name="gemini-2.0-flash")
+        model = genai.GenerativeModel(model_name=args.llm_model)
 
     # Add a column for labels if it doesn't exist
     if args.label_llm is False:
@@ -116,8 +117,9 @@ if __name__ == "__main__":
 
             # Increment LLM counter and enforce rate limit
             llm_counter += 1
-            if llm_counter % 15 == 0:
+            if llm_counter % 14 == 0:
                 print("Rate limit reached; sleeping for 65 seconds...")
+                llm_counter = 0
                 time.sleep(65)
 
         # Save progress in-place

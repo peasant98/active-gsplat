@@ -6,7 +6,7 @@ from torch.utils.data import DataLoader, random_split
 import argparse
 import tqdm
 
-from preference_models import Dinov2PreferenceModel, ResNetPreferenceModel
+from pref_models import *
 from image_utils import *
 
 def train(
@@ -108,8 +108,8 @@ if __name__ == "__main__":
     if args.csv_file is None or args.csv_file == "" or args.csv_file == " ":
         raise ValueError("Invalid CSV File path")
     
-    if "dino" not in args.model and "resnet" not in args.model:
-        raise ValueError("Invalid Model type. Choose between 'resnet' or 'dino'")
+    if args.model not in PREF_MODELS:
+        raise ValueError(f"Invalid Model type. Choose between {PREF_MODELS}")
 
     # Define transformations
     transform = transforms.Compose([
@@ -137,7 +137,13 @@ if __name__ == "__main__":
     print("Dataset created... \n")
 
     # Initialize model, loss, and optimizer
-    model = ResNetPreferenceModel() if args.model == "resnet" else Dinov2PreferenceModel()
+    if args.model == "resnet":
+        model = ResNetPreferenceModel() 
+    elif args.model == "dino" 
+        model = Dinov2PreferenceModel()
+    else:
+        model = HieraPreferenceModel()
+        
     criterion = nn.BCELoss() # Neeed for Bradley-Terry model
     optimizer = optim.Adam(model.parameters(), lr=1e-4)
 

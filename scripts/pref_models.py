@@ -2,6 +2,9 @@ import torch
 import torch.nn as nn
 from torchvision import models
 
+
+PREF_MODELS = ['resnet', 'dinov2', 'hiera']
+
 class ResNetPreferenceModel(nn.Module):
     def __init__(self, pretrained_model_name="resnet50"):
         super(ResNetPreferenceModel, self).__init__()
@@ -78,3 +81,57 @@ class Dinov2PreferenceModel(nn.Module):
         # Compute probability as a softmax-like ratio between the two scores
         output = torch.exp(x1) / (torch.exp(x1) + torch.exp(x2))
         return output    
+
+class HieraPreferenceModel(nn.Module):
+    def __init__(self):
+        super(HieraPreferenceModel, self).__init__()
+        
+        # Load pre-trained Hiera model; assumes using torch.hub
+        self.hiera1 = torch.hub.load("facebookresearch/hiera", model="hiera_base_224", pretrained=True, checkpoint="mae_in1k_ft_in1k")
+        self.hiera2 = torch.hub.load("facebookresearch/hiera", model="hiera_base_224", pretrained=True, checkpoint="mae_in1k_ft_in1k")
+        
+        # Remove classification heads if present
+        if hasattr(self.hiera1, 'head'):
+            self.hiera1.head = nn.Identity()
+        if hasattr(self.hiera2, 'head'):
+            self.hiera2.head = nn.Identity()
+        
+        # Assume the feature dimension is accessible as embed_dim; adjust if needed
+        num_features = self.hiera1.embed_dim if hasattr(self.hiera1, 'embed_dim') else 768 # Output dimension of Hiera base 
+        
+        # Define a linear layer to map features to a single scalar
+        self.linear = nn.Linear(num_features, 1)
+        
+    def forward(self, img1, img2):
+        # Extract features from both images using the Hiera model
+        features1 = self.hiera1(img1)
+        features2 = self.hiera2(img2)
+        
+        # Map features to scalar outputs
+        x1 = self.linear(features1)
+        x2 = self.linear(features2)
+        
+        # Compute probability as a softmax-like ratio between the two scores
+        output = torch.exp(x1) / (torch.exp(x1) + torch.exp(x2))
+        return output
+
+
+if __name__== "__main__":
+
+    # Test
+    model = HieraPreferenceModel()
+    print(model)
+
+    # Print model attributes like dimensions
+    # print("Model Name:", model.__class__.__name__)
+
+    # print("Model Parameters:")
+    # for name, param in model.named_parameters():
+    #     print(f"{name}: {param.shape}")
+
+    ## Test with random images
+    img1 = torch.randn(1, 3, 224, 224)  # Example input image tensor
+    img2 = torch.randn(1, 3, 224, 224)  # Example input image tensor
+
+    output = model(img1, img2)
+    print(output.shape)  # Should be [1, 1]
