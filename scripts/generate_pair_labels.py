@@ -47,7 +47,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Label pairs of images with human preferences.")
     parser.add_argument("--dataset_folder", "-d", type=str, required=True, help="Path to dataset where images are stored.")
     parser.add_argument("--csv_file", "-c", type=str, required=True, help="Path to CSV file with generated image pairs.")
-    parser.add_argument("--label_llm", type=bool, default=False, help="Determines whether to use LLM agent to label preferences.")
+    parser.add_argument("--label_llm", action="store_true", default=False, help="Determines whether to use LLM agent to label preferences.")
     args = parser.parse_args()
 
     if not args.dataset_folder or not os.path.isdir(args.dataset_folder):
