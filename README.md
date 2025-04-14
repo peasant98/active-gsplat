@@ -25,6 +25,8 @@ python3 scripts/generate_pair_labels.py -d <path to image folder> -c <path to cs
 
 ```
 
+This will open an interactive UI where you can select (1s or 0s) for each image pair. The script will save the labels in the same CSV file.
+
 ## Training the Preference Model
 
 Next, to train a specific preference model (resnet or dino), run the following script:
