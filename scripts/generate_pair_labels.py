@@ -16,7 +16,7 @@ def display_images_with_input(image1_path, image2_path):
             plt.close()
 
     # Display the images
-    fig, axes = plt.subplots(1, 2, figsize=(20, 10))
+    fig, axes = plt.subplots(1, 2, figsize=(10, 10))
     axes[0].imshow(img1)
     axes[0].axis('off')
     axes[0].set_title("Image 1 (Press 1 for this)")
@@ -26,8 +26,6 @@ def display_images_with_input(image1_path, image2_path):
     fig.canvas.mpl_connect('key_press_event', on_key)
     plt.show()
     
-    
-
     return preference["value"]
 
 
