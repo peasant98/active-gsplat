@@ -7,14 +7,31 @@ This work supports the paper [HP-GS: Human Preference Next Best View Selection f
 ![image](https://github.com/user-attachments/assets/9c963de4-67d8-490b-9581-541055ada916)
 
 
+## Generating Image Pair dataset
 
-## Training the Preference Model
-
-To train a specific preference model (resnet or dino), run the following script:
+To generate an image pair dataset from a given directory of images from a scene, run the following script:
 
 ```bash
 
-python3 scripts/train_pref_model.py -m resnet -c [path to csv file] -d [path to images] -s [path to model checkpoint .pth] -b 16
+python3 scripts/generate_image_pairs.py -d <path to image folder> -o <path to output csv file> -n <number of pairs>
+
+```
+
+Then, to label the image pairs using binary human preference labels, run:
+
+```bash
+
+python3 scripts/generate_pair_labels.py -d <path to image folder> -c <path to csv file>
+
+```
+
+## Training the Preference Model
+
+Next, to train a specific preference model (resnet or dino), run the following script:
+
+```bash
+
+python3 scripts/train_pref_model.py -m <resnet or dino> -c <path to csv file> -d <path to image folder> -s <path to output model checkpoint .pth> -b 16
 
 ```
 
