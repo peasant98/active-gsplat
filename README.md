@@ -25,7 +25,7 @@ python3 scripts/generate_pair_labels.py -d <path to image folder> -c <path to cs
 
 ```
 
-This will open an interactive UI where you can select (1s or 0s) for each image pair. The script will save the labels in the same CSV file. If you'd like an LLM to automatically label the dataset then add the flag --label_llm. This will run Gemini 1.5 Flash on the image pairs. For further modifications, you can check out the `generate_pair_labels.py` script.
+This will open an interactive UI where you can select (1s or 0s) for each image pair. The script will save the labels in the same CSV file. If you'd like an LLM to automatically label the dataset then add the flag `--label_llm`. This will run Gemini 1.5 Flash on the image pairs. For further modifications, you can check out the `generate_pair_labels.py` script.
 
 ## Training the Preference Model
 

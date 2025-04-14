@@ -97,7 +97,7 @@ class HieraPreferenceModel(nn.Module):
             self.hiera2.head = nn.Identity()
         
         # Assume the feature dimension is accessible as embed_dim; adjust if needed
-        num_features = self.hiera1.embed_dim if hasattr(self.hiera1, 'embed_dim') else 768 # Output dimension of Hiera base 
+        num_features = self.hiera1.embed_dim if hasattr(self.hiera1, 'embed_dim') else 768 # Different output dimension of Hiera base 
         
         # Define a linear layer to map features to a single scalar
         self.linear = nn.Linear(num_features, 1)
@@ -123,9 +123,6 @@ if __name__== "__main__":
     print(model)
 
     # Print model attributes like dimensions
-    # print("Model Name:", model.__class__.__name__)
-
-    # print("Model Parameters:")
     # for name, param in model.named_parameters():
     #     print(f"{name}: {param.shape}")
 
