@@ -3,6 +3,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 from PIL import Image
 import argparse
+import time
 
 def display_images_with_input(image1_path, image2_path):
     img1 = Image.open(image1_path)
@@ -68,7 +69,7 @@ if __name__ == "__main__":
         
         import google.generativeai as genai
         genai.configure(api_key=os.environ["Gemini_API_Key"])
-        model = genai.GenerativeModel(model_name="gemini-1.5-flash")
+        model = genai.GenerativeModel(model_name="gemini-2.0-flash")
 
     # Add a column for labels if it doesn't exist
     if args.label_llm is False:
@@ -77,6 +78,9 @@ if __name__ == "__main__":
     else:
         if "LLM Preference" not in pairs_df.columns:
             pairs_df["LLM Preference"] = None
+
+        # Initialize counter for LLM labeling requests to avoid rate limits
+        llm_counter = 0
 
     # Iterate through each pair for labeling
     for index, row in pairs_df.iterrows():
@@ -110,6 +114,11 @@ if __name__ == "__main__":
             # Save the preference
             pairs_df.at[index, "LLM Preference"] = preference if preference is not None else None
 
+            # Increment LLM counter and enforce rate limit
+            llm_counter += 1
+            if llm_counter % 15 == 0:
+                print("Rate limit reached; sleeping for 65 seconds...")
+                time.sleep(65)
 
         # Save progress in-place
         pairs_df.to_csv(pairs_csv, index=False)
