@@ -4,41 +4,48 @@ from PIL import Image
 import pandas as pd
 import os
 
-DATASET_FOLDERS = ['bike_dataset', 'bonsai_dataset', 'counter_dataset', 'garden_dataset', 'stump_dataset', 'dataset', 'room_dataset']
+# DATASET_FOLDERS = ['bike_dataset', 'bonsai_dataset', 'counter_dataset', 'garden_dataset', 'stump_dataset', 'dataset', 'room_dataset']
+DATASET_FOLDERS = ['basement1', 'basement2', 'bathroom1', 'bathroom5', 'bathroom6']
 
 # Define custom dataset for image pairs
 class ImagePairFullDataset(Dataset):
-    def __init__(self, csv_files, dataset_folders=DATASET_FOLDERS, transform=None):
+    def __init__(self, root_dataset_path = "datasets", dataset_folders=DATASET_FOLDERS, transform=None):
         """
-        full dataset with all pairs from diferent folders
+        Full dataset with all pairs from different folders.
+        Assume the root dataset folder is "datasets".
+        Only include rows where 'Human Preference' is populated.
         """
         pairs = None
-        
-        # for each folder, combine pairs
+        self.root = root_dataset_path
+        # For each folder, combine pairs filtering for valid Human Preference
         for folder in dataset_folders:
-            csv_file = os.path.join(folder, csv_files)
-            pair_folder = pd.read_csv(csv_file)
+            csv_file = os.path.join(root_dataset_path, folder, folder + ".csv")
+            df = pd.read_csv(csv_file)
+            
+            # Filter out rows with missing 'Human Preference'
+            df = df.dropna(subset=["Human Preference"])
+            
+            # Add a column to record which folder the images belong to
+            df["folder"] = folder
+            
             if pairs is None:
-                pairs = pair_folder
+                pairs = df
             else:
-                pairs = pd.concat([pairs, pair_folder])
+                pairs = pd.concat([pairs, df], ignore_index=True)
         
         self.pairs = pairs
-        self.dataset_folders = dataset_folders
         self.transform = transform
 
     def __len__(self):
-        return len(self.pairs) * 2
+        return len(self.pairs)
 
     def __getitem__(self, idx):
-        
-        real_idx = idx // 2
-        should_swap = idx % 2 == 1
-        
-        row = self.pairs.iloc[real_idx]
-        image1_path = os.path.join(row["Image_1"])
-        image2_path = os.path.join(row["Image_2"])
-        label = int(row["Preference"])
+        row = self.pairs.iloc[idx]
+        # Retrieve the folder recorded earlier
+        folder = row["folder"]
+        image1_path = os.path.join(self.root, folder, row["Image_1"])
+        image2_path = os.path.join(self.root, folder, row["Image_2"])
+        label = int(row["Human Preference"])
 
         # Load images
         image1 = Image.open(image1_path).convert("RGB")
@@ -48,12 +55,6 @@ class ImagePairFullDataset(Dataset):
         if self.transform:
             image1 = self.transform(image1)
             image2 = self.transform(image2)
-
-        # Concatenate the two images as input
-        combined_images = torch.cat((image1, image2), dim=0)  # Concatenate along the channel dimension
-        
-        if should_swap:
-            return (image2, image1), torch.tensor(1 - label, dtype=torch.float)
 
         return (image1, image2), torch.tensor(label, dtype=torch.float)
 

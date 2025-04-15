@@ -16,8 +16,13 @@ def train(
     criterion, 
     optimizer, 
     num_epochs=5,
-    save_path = "kitchen_big.pth"
+    save_path="kitchen_big.pth",
+    device=None
 ):
+    # Set device if not provided
+    if device is None:
+        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    print(f"Using device: {device}")
 
     print("Beginning training... \n")
     # Training loop
@@ -31,6 +36,9 @@ def train(
         for images, labels in train_progress:
             optimizer.zero_grad()
             image1, image2 = images
+            image1 = image1.to(device)
+            image2 = image2.to(device)
+            labels = labels.to(device)
 
             # Forward pass
             outputs = model(image1, image2)
@@ -53,6 +61,9 @@ def train(
         with torch.no_grad():
             for images, labels in val_progress:
                 image1, image2 = images
+                image1 = image1.to(device)
+                image2 = image2.to(device)
+                labels = labels.to(device)
                 outputs = model(image1, image2)
                 outputs = outputs.squeeze()
 
@@ -74,7 +85,10 @@ def train(
     torch.save(model.state_dict(), save_path)
     print(f"Model saved to {save_path}")
 
-def test(model, test_loader):
+def test(model, test_loader, device=None):
+    if device is None:
+        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    print(f"Using device: {device}")
     model.eval()
     correct = 0
     total = 0
@@ -82,6 +96,9 @@ def test(model, test_loader):
     with torch.no_grad():
         for images, labels in test_progress:
             image1, image2 = images
+            image1 = image1.to(device)
+            image2 = image2.to(device)
+            labels = labels.to(device)
             outputs = model(image1, image2)
             outputs = outputs.squeeze()
 
@@ -98,15 +115,21 @@ def test(model, test_loader):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Train Preference Model on Human Pref dataset for Next Best View selection.")
     parser.add_argument("--model", "-m", type=str, required=False, default="resnet", help="Model to use for training. Options: resnet, dino")    
-    parser.add_argument("--csv_file", "-c", type=str, required=True, default=None, help="Path to CSV file with generated image pairs.")
-    parser.add_argument("--dataset_folder", "-d", type=str, required=False, default=None, help="Path to dataset where images are stored.")
+    parser.add_argument("--csv_file", "-c", type=str, nargs="+", required=False, help="Path(s) to CSV file(s) with generated image pairs.")
+    parser.add_argument("--dataset_folder", "-d", type=str, nargs="+", required=False, default=None, help="Path(s) to dataset folder(s) where images are stored.")
     parser.add_argument("--save_path", "-s", type=str, help=" Path to save model checkpoint .pth")
     parser.add_argument("--batch_size", "-b", type=int, default=16, help = "Batch Size for model training")
+    parser.add_argument("--all-scenes", action="store_true", default=False, help="Use all scenes in the dataset. Default is False.")
 
     args = parser.parse_args()
 
-    if args.csv_file is None or args.csv_file == "" or args.csv_file == " ":
-        raise ValueError("Invalid CSV File path")
+    if args.all_scenes:
+        # Check if args.dataset_folder is not empty
+        if args.dataset_folder is None or args.dataset_folder == "" or args.dataset_folder == " ":
+            raise ValueError("Invalid dataset folder path when all scenes has been selected")
+    else:
+        if args.csv_file is None or args.csv_file == "" or args.csv_file == " ":
+            raise ValueError("Invalid CSV File path")
     
     if args.model not in PREF_MODELS:
         raise ValueError(f"Invalid Model type. Choose between {PREF_MODELS}")
@@ -118,10 +141,14 @@ if __name__ == "__main__":
     ])
 
     # Load dataset
-    full_dataset = ImagePairSceneDataset(args.csv_file, args.dataset_folder, transform=transform)
+    if args.all_scenes:
+        full_dataset = ImagePairFullDataset(transform=transform)
+    else:
+        full_dataset = ImagePairSceneDataset(args.csv_file, args.dataset_folder, transform=transform)
 
     # Define split sizes
     dataset_size = len(full_dataset)
+    print(f"Dataset size: {dataset_size}")
     train_size = int(0.8 * dataset_size)
     val_size = int(0.1 * dataset_size)
     test_size = dataset_size - train_size - val_size
@@ -136,14 +163,18 @@ if __name__ == "__main__":
 
     print("Dataset created... \n")
 
+    # Device detection
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
     # Initialize model, loss, and optimizer
     if args.model == "resnet":
         model = ResNetPreferenceModel() 
-    elif args.model == "dino" 
+    elif args.model == "dino":
         model = Dinov2PreferenceModel()
     else:
         model = HieraPreferenceModel()
         
+    model = model.to(device)  # move model to GPU if available
     criterion = nn.BCELoss() # Neeed for Bradley-Terry model
     optimizer = optim.Adam(model.parameters(), lr=1e-4)
 
@@ -154,9 +185,10 @@ if __name__ == "__main__":
         val_loader=val_loader, 
         criterion=criterion, 
         optimizer=optimizer, 
-        save_path=args.save_path
+        save_path=args.save_path,
+        device=device
     )
 
     print("Testing... \n")
     # Running test
-    test(model, test_loader=test_loader)
+    test(model, test_loader=test_loader, device=device)
