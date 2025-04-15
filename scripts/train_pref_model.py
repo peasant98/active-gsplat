@@ -115,10 +115,10 @@ def test(model, test_loader, device=None):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Train Preference Model on Human Pref dataset for Next Best View selection.")
     parser.add_argument("--model", "-m", type=str, required=False, default="resnet", help="Model to use for training. Options: resnet, dino")    
-    parser.add_argument("--csv_file", "-c", type=str, nargs="+", required=False, help="Path(s) to CSV file(s) with generated image pairs.")
-    parser.add_argument("--dataset_folder", "-d", type=str, nargs="+", required=False, default=None, help="Path(s) to dataset folder(s) where images are stored.")
-    parser.add_argument("--save_path", "-s", type=str, help=" Path to save model checkpoint .pth")
-    parser.add_argument("--batch_size", "-b", type=int, default=16, help = "Batch Size for model training")
+    parser.add_argument("--csv-file", "-c", type=str, nargs="+", required=False, help="Path(s) to CSV file(s) with generated image pairs.")
+    parser.add_argument("--dataset-folder", "-d", type=str, nargs="+", required=False, default="datasets", help="Path(s) to dataset folder(s) where images are stored.")
+    parser.add_argument("--save-path", "-s", type=str, help=" Path to save model checkpoint .pth")
+    parser.add_argument("--batch-size", "-b", type=int, default=16, help = "Batch Size for model training")
     parser.add_argument("--all-scenes", action="store_true", default=False, help="Use all scenes in the dataset. Default is False.")
 
     args = parser.parse_args()
@@ -171,14 +171,16 @@ if __name__ == "__main__":
         model = ResNetPreferenceModel() 
     elif args.model == "dino":
         model = Dinov2PreferenceModel()
-    else:
+    elif args.model == "hiera":
         model = HieraPreferenceModel()
+    else:
+        raise ValueError(f"Invalid Model type. Choose between {PREF_MODELS}")
         
     model = model.to(device)  # move model to GPU if available
     criterion = nn.BCELoss() # Neeed for Bradley-Terry model
     optimizer = optim.Adam(model.parameters(), lr=1e-4)
 
-    print("Training... \n")
+    print(f"Training... {args.model} model\n")
 
     # Running training
     train(model, train_loader=train_loader, 
@@ -189,6 +191,6 @@ if __name__ == "__main__":
         device=device
     )
 
-    print("Testing... \n")
+    print(f"Testing... {args.model} model \n")
     # Running test
     test(model, test_loader=test_loader, device=device)

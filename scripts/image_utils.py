@@ -71,7 +71,7 @@ class ImagePairSceneDataset(Dataset):
         row = self.pairs.iloc[idx]
         image1_path = os.path.join(self.dataset_folder, row["Image_1"])
         image2_path = os.path.join(self.dataset_folder, row["Image_2"])
-        label = int(row["Preference"])
+        label = int(row["Human Preference"])
 
         # Load images
         image1 = Image.open(image1_path).convert("RGB")

@@ -3,7 +3,7 @@ import torch.nn as nn
 from torchvision import models
 
 
-PREF_MODELS = ['resnet', 'dinov2', 'hiera']
+PREF_MODELS = ['resnet', 'dino', 'hiera']
 
 class ResNetPreferenceModel(nn.Module):
     def __init__(self, pretrained_model_name="resnet50"):
