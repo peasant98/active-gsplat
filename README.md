@@ -6,21 +6,37 @@ This work supports the paper [HP-GS: Human Preference Next Best View Selection f
 
 ![image](https://github.com/user-attachments/assets/9c963de4-67d8-490b-9581-541055ada916)
 
-## Setup
+# Setup
 1. Setup a virtual env with Python or Conda env:
 
 ```bash
-conda env create -n active-gsplat python=3.10
+conda env create -n active-gsplat python=3.12
 conda activate active-gsplat
 ```
 
-2. Clone the repo and install the requirements:
+2. Install pytorch for your CUDA version. For example, for CUDA 12.6, run:
+
+```bash
+pip install torch torchvision torchaudio --extra-index-url https://download.pytorch.org/whl/cu126
+```
+
+3. Clone the repo and install the requirements:
 
 ```bash
 git clone https://github.com/peasant98/active-gsplat.git
 cd active-gsplat
 pip install -r requirements.txt
 ```
+
+4. [OPTIONAL] If you are going to use Gemini for pre-training/labelling, etc. Make sure to set the API Key as an environment variable:
+
+```bash
+export Gemini_API_Key = [your API Key]
+```
+
+You could also add this line to your `.bashrc` file to make it permanent.
+
+# Implementation
 
 ## Generating Image Pair dataset
 
