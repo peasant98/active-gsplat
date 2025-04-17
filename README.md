@@ -37,7 +37,19 @@ python3 scripts/train_pref_model.py -m <resnet or dino> -c <path to csv file> -d
 
 ```
 
+Use the flag `--all-scenes` if you would like to train the model over all possible scenes. If you wish to add more scenes, modify the DATASET_FOLDERS list at the top of `scripts/image_utils.py`.
+
 The preference models are stored in `scripts/pref_models.py`.
+
+## Visualizing the Preference Model
+You can use the following script to visualize predictions of the trained model:
+
+```bash
+python3 scripts/visualize_pref_model.py -m <resnet or dino or hiera> --model-path <path to model ckpt .pth> --gpu -n <number of samples you want to visualize> -t <path to test dataset folder>
+
+```
+
+Note that the if the test dataset flag is not passed, it will automatically use random samples from the full dataset it was trained on. Also ensure that the test dataset folder contains a csv with some image pairs. You can create this csv using the `generate_image_pairs.py` script. 
 
 ## Running View Selection
 

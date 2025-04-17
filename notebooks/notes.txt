@@ -1,0 +1,7 @@
+Some observations of how I chose a preferred image:
+
+- Images containing dense content (more objects, colour, etc) had higher chances of being distorted/containing noise
+- Blemishes
+- Random artifacts
+- Blurriness
+- Distortion on walls (sometimes smoothness also acts as a distortion on walls/objects with a certain amount of texture)

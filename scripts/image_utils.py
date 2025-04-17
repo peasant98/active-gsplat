@@ -5,7 +5,9 @@ import pandas as pd
 import os
 
 # DATASET_FOLDERS = ['bike_dataset', 'bonsai_dataset', 'counter_dataset', 'garden_dataset', 'stump_dataset', 'dataset', 'room_dataset']
-DATASET_FOLDERS = ['basement1', 'basement2', 'bathroom1', 'bathroom5', 'bathroom6']
+DATASET_FOLDERS = ['basement_1', 'basement_2', 'bathroom_1', 'bathroom_5', 'bathroom_6', 'bathroom_7', 'bathroom_10', 'bathroom_11', 'bathroom_13', 'bathroom_14']
+
+# bathroom16 is unseen test set for now
 
 # Define custom dataset for image pairs
 class ImagePairFullDataset(Dataset):
@@ -19,14 +21,20 @@ class ImagePairFullDataset(Dataset):
         self.root = root_dataset_path
         # For each folder, combine pairs filtering for valid Human Preference
         for folder in dataset_folders:
-            csv_file = os.path.join(root_dataset_path, folder, folder + ".csv")
+
+            # Construct the path to the CSV file
+            # strip the number from the parent folder name from folder. Ex: 'bathroom_1' -> 'bathroom'
+            base_folder = os.path.join(folder.split("_")[0], folder) # ex: bathroom/bathroom_1
+
+
+            csv_file = os.path.join(root_dataset_path, base_folder, folder + ".csv")
             df = pd.read_csv(csv_file)
             
             # Filter out rows with missing 'Human Preference'
             df = df.dropna(subset=["Human Preference"])
-            
+
             # Add a column to record which folder the images belong to
-            df["folder"] = folder
+            df["folder"] = base_folder
             
             if pairs is None:
                 pairs = df
