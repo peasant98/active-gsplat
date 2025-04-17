@@ -6,6 +6,21 @@ This work supports the paper [HP-GS: Human Preference Next Best View Selection f
 
 ![image](https://github.com/user-attachments/assets/9c963de4-67d8-490b-9581-541055ada916)
 
+## Setup
+1. Setup a virtual env with Python or Conda env:
+
+```bash
+conda env create -n active-gsplat python=3.10
+conda activate active-gsplat
+```
+
+2. Clone the repo and install the requirements:
+
+```bash
+git clone https://github.com/peasant98/active-gsplat.git
+cd active-gsplat
+pip install -r requirements.txt
+```
 
 ## Generating Image Pair dataset
 
