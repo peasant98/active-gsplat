@@ -101,7 +101,22 @@ class HieraPreferenceModel(nn.Module):
         
         # Define a linear layer to map features to a single scalar
         self.linear = nn.Linear(num_features, 1)
-        
+
+    def forward_features(self, images, model=1):
+
+        ## TODO: Needs to return an output of shape: [batch_size, seq_length, embed_dim] where seq_len % (14*14) = 0
+        # Extract features from the image using the specified Hiera model
+        feature_model = self.hiera1 if model == 1 else self.hiera2
+
+        backbone = feature_model.blocks
+        x = feature_model.patch_embed(images) + feature_model.pos_embed       
+        # x = feature_model.pos_drop(x)
+
+        for block in backbone:
+            x = block(x)
+        print(x.shape)
+        return x
+
     def forward(self, img1, img2):
         # Extract features from both images using the Hiera model
         features1 = self.hiera1(img1)
