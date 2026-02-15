@@ -27,3 +27,33 @@ python3 examples/simple_active_trainer.py default --disable_viewer --data_factor
 ```
 
 `view_selection_method` is one of `random`, `fisher`, or `pref_model` (you will need to specify a path to the pref model)
+
+# Habitat-Sim Setup and Dataset Download
+
+To use Habitat-Sim and download the hssd-hab dataset for generating environments and datasets, follow these steps:
+
+1. **Create and activate a compatible conda environment:**
+	```bash
+	conda create -n habitat_sim python=3.9 cmake=3.27
+	conda activate habitat_sim
+	```
+
+2. **Install Habitat-Sim with display and headless rendering support:**
+	```bash
+	conda install habitat-sim withbullet -c conda-forge -c aihabitat
+	```
+
+3. **Download the hssd-hab dataset:**
+	```bash
+	python -m habitat_sim.utils.datasets_download --uids hssd-hab --data-path /path/to/dataset/
+	```
+
+	*Note: To view all possible downloadable datasets, run:*
+	```bash
+	python -m habitat_sim.utils.datasets_download --list
+	```
+
+
+
+
+This will set up Habitat-Sim and place the hssd-hab dataset in the `datasets/` directory. You can now use these assets for generating your own datasets and running your data processing scripts.
