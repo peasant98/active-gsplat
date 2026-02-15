@@ -53,7 +53,9 @@ To use Habitat-Sim and download the hssd-hab dataset for generating environments
 	python -m habitat_sim.utils.datasets_download --list
 	```
 
-
-
+4. **To use the installed viewer:**
+    ```bash
+    habitat-viewer --dataset /path/to/hssd-hab/hssd-hab.scene_dataset_config.json -- 102344280
+    ```
 
 This will set up Habitat-Sim and place the hssd-hab dataset in the `datasets/` directory. You can now use these assets for generating your own datasets and running your data processing scripts.
